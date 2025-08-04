@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 var prng = std.Random.DefaultPrng.init(42);
 
-const alpha: f64 = 0.1;
+const alpha: f64 = 0.5;
 
 // Input is 784 x 1
 // vectorized: 784 x 10,000
@@ -20,7 +20,7 @@ fn random_matrix(comptime m: usize, comptime n: usize) [m][n]f64 {
   var output: [m][n]f64 = undefined;
   for (output, 0..) |row, row_idx| {
     for (row, 0..) |_, col_idx| {
-      output[row_idx][col_idx] = prng.random().float(f64) * 2 - 1;
+      output[row_idx][col_idx] = (prng.random().float(f64) * 2 - 1) * 0.1;
     }
   }
   return output;
@@ -45,16 +45,25 @@ pub fn ReLU_deriv(comptime T: type, x: T) T {
 }
 
 // Softmax
-// TODO: change to safe softmax
-pub fn softmax(comptime T: type, comptime m: usize, z: [m]T) [m]T{
+pub fn softmax(comptime T: type, comptime m: usize, v: [m]T) [m]T{
+  var max: T = v[0];
   var output: [m]f64 = undefined;
-  var sum = @as(T, 0);
+  var sum: f64 = 0.0;
 
-  for (z, 0..) |row, idx| {
-    output[idx] = @exp(row);
-    sum += @exp(row);
+  // Get max value
+  for (v[1..]) |val| {
+    if (val > max) {
+      max = val;
+    }
   }
 
+  // Find exponentials relative to max value (this prevents overflow)
+  for (v, 0..) |val, idx| {
+    output[idx] = @exp(val - max);
+    sum += output[idx];
+  }
+
+  // Normalize
   for (&output) |*x| {
     x.* /= sum;
   }
@@ -99,7 +108,7 @@ pub fn dot(comptime T: type, comptime m: usize, comptime n: usize, mat1: [m][n]T
   return output;
 }
 
-pub fn ymax(comptime T: type, v: [10]T) usize {
+pub fn vmax(comptime T: type, v: [10]T) usize {
   var output: usize = 0;
   var max: T = @as(T, 0.0);
   for (v, 0..) |i, idx| {
@@ -142,8 +151,6 @@ pub fn main() !void {
   defer data_test.deinit();
   std.debug.print("/////////////////// Complete /////////////////////\n", .{});
 
-  std.debug.print("Data: {any}", .{data_train.value[0]});
-
   // Network Architecture
   // In     H1     Out
   // 784 -> 256 -> 10
@@ -167,96 +174,112 @@ pub fn main() !void {
   var z2: [10]f64 = undefined;
   var a2: [10]f64 = undefined;
 
+  var right: f32 = 0;
+  var wrong: f32 = 0;
   // Stochastic Gradient Descent
   // Only do one sample at a time
   // Note: It is far better to perform vectorization over the entire dataset
-  for (data_train.value) |data| {
-    // Input layer (Data)
-    const input: [784]f64 = data.image;
-    const label: u8 = data.label;
+  for (0..10) |epoch| {
 
-    ////////////////////////////////////////////////
-    // Forward Propogation /////////////////////////
-    ////////////////////////////////////////////////
-    z1 = dot(f64, 256, 784, w1, input);
-    z1 = add(f64, 256, z1, b1);
-    a1 = ReLU(f64, 256, z1);
+    std.debug.print("Epoch: {d}\n", .{epoch});
+    for (data_train.value, 0..) |data, iteration| {
+      // Input layer (Data)
+      const input: [784]f64 = data.image;
+      const label: u8 = data.label;
 
-    z2 = dot(f64, 10, 256, w2, a1);
-    z2 = add(f64, 10, z2, b2);
-    a2 = softmax(f64, 10, z2);
+      ////////////////////////////////////////////////
+      // Forward Propogation /////////////////////////
+      ////////////////////////////////////////////////
+      z1 = dot(f64, 256, 784, w1, input);
+      z1 = add(f64, 256, z1, b1);
+      a1 = ReLU(f64, 256, z1);
 
-    // Display Guess
-    std.debug.print("Input: {d}\n", .{label});
-    std.debug.print("Guess: {d}\n", .{ymax(f64, a2)});
+      z2 = dot(f64, 10, 256, w2, a1);
+      z2 = add(f64, 10, z2, b2);
+      a2 = softmax(f64, 10, z2);
 
-    ////////////////////////////////////////////////
-    // Back Propogation ////////////////////////////
-    ////////////////////////////////////////////////
-    const y = one_hot(label);         // 10 x 1
+      const guess = vmax(f64, a2);
+      // Display Guess
+      // std.debug.print("Input: {d}    ", .{label});
+      // std.debug.print("Guess: {d}\n", .{guess});
+      if (label == guess) {
+        right += 1.0;
+      } else {
+        wrong += 1.0;
+      }
 
-    var dz2: [10]f64 = undefined; // 10 x 1
-    for (0..10) |idx| {
-      dz2[idx] = a2[idx] - y[idx];
-    }
+      if (iteration % 100 == 0) {
+        std.debug.print("Accuracy: {d:.6}\n", .{right / (right + wrong)});
+      }
 
-    // dw2 = dot(dz2, a1.transpose())
-    var dw2: [10][256]f64 = undefined;
-    for (dz2, 0..) |row, m| {       // 10 x 1
-      for (a1, 0..) |col, n| {      // 256 x 1 transposed => 1 x 256
-        dw2[m][n] = row * col;
+
+      ////////////////////////////////////////////////
+      // Back Propogation ////////////////////////////
+      ////////////////////////////////////////////////
+      const y = one_hot(label);         // 10 x 1
+
+      var dz2: [10]f64 = undefined; // 10 x 1
+      for (0..10) |idx| {
+        dz2[idx] = a2[idx] - y[idx];
+      }
+
+      // dw2 = dot(dz2, a1.transpose())
+      var dw2: [10][256]f64 = undefined;
+      for (dz2, 0..) |row, m| {       // 10 x 1
+        for (a1, 0..) |col, n| {      // 256 x 1 transposed => 1 x 256
+          dw2[m][n] = (1/60000) * row * col;
+        }
+      }
+      const db2: f64 = (1/60000) * vsum(f64, 10, dz2);
+
+      var dz1: [256]f64 = undefined;
+      // dot( w2.T , dz2) * ReLU_deriv(z1);
+      for (0..256) |i| {
+        for (0..10) |j| {
+          dz1[i] += w2[j][i] * dz2[j];
+        }
+        dz1[i] *= ReLU_deriv(f64, z1[i]);
+      }
+
+      var dw1: [256][784]f64 = undefined;
+      for (dz1, 0..) |row, m| {       // 256 x 1
+        for (input, 0..) |col, n| {   // 784 x 1 transposed => 1 x 784
+          dw1[m][n] = (1/60000) * row * col;
+        }
+      }
+
+      const db1: f64 = (1/60000) * vsum(f64, 256, dz1);
+
+      ////////////////////////////////////////////////
+      // Update Network //////////////////////////////
+      ////////////////////////////////////////////////
+
+      // Update w1
+      for (w1, 0..) |row, m| {
+        for (row, 0..) |_, n| {
+          w1[m][n] -= alpha * dw1[m][n];
+        }
+      }
+
+      // Update b1
+      for (b1, 0..) |_, m| {
+        b1[m] -= alpha * db1;
+      }
+
+      // Update w2
+      for (w2, 0..) |row, m| {
+        for (row, 0..) |_, n| {
+          w2[m][n] -= alpha * dw2[m][n];
+        }
+      }
+
+      // Update b2
+      for (b2, 0..) |_, m| {
+        b2[m] -= alpha * db2;
       }
     }
-    const db2: f64 = vsum(f64, 10, dz2);
-
-    var dz1: [256]f64 = undefined;
-    // dot( w2.T , dz2) * ReLU_deriv(z1);
-    for (0..256) |i| {
-      for (0..10) |j| {
-        dz1[i] += w2[j][i] * dz2[j];
-      }
-      dz1[i] *= ReLU_deriv(f64, z1[i]);
-    }
-
-    var dw1: [256][784]f64 = undefined;
-    for (dz1, 0..) |row, m| {       // 256 x 1
-      for (input, 0..) |col, n| {   // 784 x 1 transposed => 1 x 784
-        dw1[m][n] = row * col;
-      }
-    }
-
-    const db1: f64 = vsum(f64, 256, dz1);
-
-    ////////////////////////////////////////////////
-    // Update Network //////////////////////////////
-    ////////////////////////////////////////////////
-
-    // Update w1
-    for (w1, 0..) |row, m| {
-      for (row, 0..) |_, n| {
-        w1[m][n] -= alpha * dw1[m][n];
-        std.debug.print("dw1[{d}][{d}] = {d}\n", .{m, n, dw1[m][n]});
-      }
-    }
-
-    // Update b1
-    for (b1, 0..) |_, m| {
-      b1[m] -= alpha * db1;
-    }
-
-    // Update w2
-    for (w2, 0..) |row, m| {
-      for (row, 0..) |_, n| {
-        w2[m][n] -= alpha * dw2[m][n];
-      }
-    }
-
-    // Update b2
-    for (b2, 0..) |_, m| {
-      b2[m] -= alpha * db2;
-    }
-
   }
+
 }
 
 test "one-hot" {
