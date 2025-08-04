@@ -1,0 +1,5 @@
+mnist/
+archive.zip
+.zig-cache
+
+bin/
