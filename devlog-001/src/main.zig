@@ -176,13 +176,15 @@ pub fn main() !void {
   var a2: [10]f64 = undefined;
 
   var right: f32 = 0.0;
+
+  std.debug.print("Epoch\n", .{});
   // Stochastic Gradient Descent
   // Only do one sample at a time
   // Note: It is far better to perform vectorization over the entire dataset
-  for (0..50) |epoch| {
+  for (0..10) |epoch| {
 
-    std.debug.print("Epoch: {d}\n", .{epoch});
-    std.debug.print("Acc: {d:.4}\n\n", .{100 * (right/60000.0)});
+    std.debug.print("[{d}]  ", .{epoch});
+    std.debug.print("Accuracy: {d:.2}%\n", .{100 * (right/10_000.0)});
     right = 0;
 
     for (data_train.value) |data| {
@@ -200,12 +202,6 @@ pub fn main() !void {
       z2 = dot(f64, 10, 20, w2, a1);
       z2 = add(f64, 10, z2, b2);
       a2 = softmax(f64, 10, z2);
-      // std.debug.print("{any}\n", .{a2});
-
-      // Check if guess is right
-      if (vmax(f64, a2) == @as(usize, label)) {
-        right += 1;
-      }
 
       ////////////////////////////////////////////////
       // Back Propogation ////////////////////////////
@@ -268,6 +264,29 @@ pub fn main() !void {
       // Update b2
       for (&b2) |*val| {
         val.* -= alpha * db2;
+      }
+    }
+
+    // Check the test set
+    for (data_test.value) |data| {
+      // Input layer (Data)
+      const input: [784]f64 = data.image;
+      const label: u8 = data.label;
+
+      ////////////////////////////////////////////////
+      // Image Classification /////////////////////////
+      ////////////////////////////////////////////////
+      z1 = dot(f64, 20, 784, w1, input);
+      z1 = add(f64, 20, z1, b1);
+      a1 = ReLU(f64, 20, z1);
+
+      z2 = dot(f64, 10, 20, w2, a1);
+      z2 = add(f64, 10, z2, b2);
+      a2 = softmax(f64, 10, z2);
+
+      // Check if guess is right
+      if (vmax(f64, a2) == @as(usize, label)) {
+        right += 1;
       }
     }
   }
