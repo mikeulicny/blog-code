@@ -3,16 +3,14 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 var prng = std.Random.DefaultPrng.init(42);
 
-const alpha: f64 = 0.0001;
-//const lambda: f64 = 10;
+const alpha: f64 = 0.002;
 
 // Input is 784 x 1
-// vectorized: 784 x 10,000
 
 fn random_vector(comptime m: usize) [m]f64 {
     var output: [m]f64 = undefined;
     for (output, 0..) |_, idx| {
-        output[idx] = prng.random().float(f64) * 0.05;
+        output[idx] = prng.random().float(f64) * 0.1 - 0.05;
     }
     return output;
 }
@@ -21,7 +19,7 @@ fn random_matrix(comptime m: usize, comptime n: usize) [m][n]f64 {
     var output: [m][n]f64 = undefined;
     for (output, 0..) |row, row_idx| {
         for (row, 0..) |_, col_idx| {
-            output[row_idx][col_idx] = prng.random().float(f64) * 0.05;
+            output[row_idx][col_idx] = prng.random().float(f64) * 0.1 - 0.05;
         }
     }
     return output;
@@ -147,7 +145,7 @@ pub fn main() !void {
     defer data_train.deinit();
     std.debug.print("/////////////////// Complete /////////////////////\n", .{});
 
-    std.debug.print("//////////// Parsing MNIST Test Data //////////////\n", .{});
+    std.debug.print("/////////// Parsing MNIST Test Data //////////////\n", .{});
     const data_test = try std.json.parseFromSlice([]Image, alloc, testFileContents, .{});
     defer data_test.deinit();
     std.debug.print("/////////////////// Complete /////////////////////\n", .{});
@@ -181,7 +179,7 @@ pub fn main() !void {
     // Stochastic Gradient Descent
     // Only do one sample at a time
     // Note: It is far better to perform vectorization over the entire dataset
-    for (0..10) |epoch| {
+    for (0..50) |epoch| {
         std.debug.print("[{d}]  ", .{epoch});
         std.debug.print("Accuracy: {d:.2}%\n", .{100 * (right / 10_000.0)});
         right = 0;
@@ -213,10 +211,10 @@ pub fn main() !void {
             var dw2: [10][20]f64 = .{.{0.0} ** 20} ** 10;
             for (dz2, 0..) |row, m| {
                 for (a1, 0..) |col, n| {
-                    dw2[m][n] = row * col;
+                    dw2[m][n] = (1.0 / 60000.0) * row * col;
                 }
             }
-            const db2: f64 = vsum(f64, 10, dz2);
+            const db2: f64 = (1.0 / 60000.0) * vsum(f64, 10, dz2);
 
             var dz1: [20]f64 = .{0.0} ** 20;
             // dot( w2.T , dz2) * ReLU_deriv(z1);
@@ -231,11 +229,11 @@ pub fn main() !void {
             var dw1: [20][784]f64 = .{.{0.0} ** 784} ** 20;
             for (dz1, 0..) |row, m| {
                 for (input, 0..) |col, n| {
-                    dw1[m][n] = row * col;
+                    dw1[m][n] = (1.0 / 60000.0) * row * col;
                 }
             }
 
-            const db1: f64 = vsum(f64, 20, dz1);
+            const db1: f64 = (1.0 / 60000.0) * vsum(f64, 20, dz1);
 
             ////////////////////////////////////////////////
             // Update Network //////////////////////////////
